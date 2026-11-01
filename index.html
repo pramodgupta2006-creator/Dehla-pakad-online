@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dehla Pakad Online</title><style>
+:root{font-family:system-ui,Arial;color:#211b27;background:#f7f1e8}*{box-sizing:border-box}
+body{margin:0;padding:18px;max-width:760px;margin:auto}.top{text-align:center;margin:8px 0 20px}
+h1{margin:0;font-size:30px;color:#593d73}.sub{color:#766b7a}
+.panel{background:white;border:1px solid #e6dce9;border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 4px 15px #39264a0b}
+input{width:100%;padding:12px;border:1px solid #d8cddd;border-radius:10px;font-size:16px;margin:6px 0 12px}
+button{border:0;border-radius:11px;padding:12px 16px;background:#68468a;color:white;font-weight:700;font-size:15px;cursor:pointer}
+button:disabled{opacity:.4;cursor:not-allowed}.secondary{background:#eee6f2;color:#49345a}
+.row{display:flex;gap:9px;flex-wrap:wrap}.row>*{flex:1}.hide{display:none!important}
+.players{display:grid;grid-template-columns:1fr 1fr;gap:8px}.player{padding:10px;background:#f6f0f8;border-radius:10px;font-size:14px}
+.score{display:flex;justify-content:space-around;text-align:center}.score strong{font-size:28px;display:block}
+.table{display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center}.played{background:#f8f4fa;padding:13px;border-radius:12px;min-height:66px}
+.cards{display:flex;flex-wrap:wrap;gap:7px;justify-content:center}.card{background:white;color:#222;border:1px solid #bbb;border-radius:9px;padding:10px 7px;min-width:42px;font-size:18px;font-weight:800}
+.red{color:#d32f45}.muted{color:#786e7d;font-size:13px}.status{font-weight:650;text-align:center;margin:10px 0}
+.notice{color:#a32b42;font-size:14px;min-height:20px}
+</style></head><body>
+<header class="top"><div style="font-size:35px">🃏</div><h1>Dehla Pakad</h1><div class="sub">Online friends edition · 4 players</div></header>
+<section id="home" class="panel">
+ <label>Your name<input id="name" maxlength="18" placeholder="Enter your name"></label>
+ <div class="row"><button id="create">Create a room</button><button class="secondary" id="showJoin">Join a room</button></div>
+ <div id="joinBox" class="hide" style="margin-top:12px"><label>Room code<input id="code" maxlength="6" placeholder="e.g. A1B2C3"></label><button id="join">Join game</button></div>
+ <p id="notice" class="notice"></p>
+</section>
+<section id="lobby" class="panel hide">
+ <div class="muted">YOUR ROOM CODE</div><div style="font-size:30px;font-weight:900;letter-spacing:4px" id="roomCode"></div>
+ <p class="muted">Share this code with your 3 friends so they can join from their phones.</p>
+ <div class="players" id="players"></div>
+ <p class="muted">Teams: seats 1 & 3 vs seats 2 & 4.</p><button id="start">Start game (creator only)</button>
+</section>
+<section id="game" class="hide">
+ <div class="panel score"><div>Team A <strong id="scoreA">0</strong><small class="muted">Players 1 & 3</small></div><div>Team B<strong id="scoreB">0</strong><small class="muted">Players 2 & 4</small></div></div>
+ <div class="panel"><div class="row"><div><b>Trump suit</b><div id="trump" style="font-size:24px">—</div></div><div style="text-align:right"><b>Trick</b><div id="trickNo">1 / 13</div></div></div></div>
+ <div class="panel"><b>Cards on table</b><div class="table" id="table" style="margin-top:10px"></div><div class="status" id="status"></div></div>
+ <div class="panel"><b id="handTitle">Your cards</b><p class="muted">Your hand is private. Only you can see your cards.</p><div class="cards" id="hand"></div><p class="muted" id="hint"></p></div>
+ <div class="panel hide" id="finished"><h2>🏆 Game finished!</h2><div id="winner"></div></div>
+</section>
+<script src="/socket.io/socket.io.js"></script><script>
+const socket=io();let mySeat=null,latest=null,selected=-1;
+const $=id=>document.getElementById(id);
+function msg(t){$('notice').textContent=t}
+function enterLobby(code){$('home').classList.add('hide');$('lobby').classList.remove('hide');$('roomCode').textContent=code}
+$('create').onclick=()=>{msg('');socket.emit('createRoom',{name:$('name').value.trim()||'Player 1'})};
+$('showJoin').onclick=()=>$('joinBox').classList.toggle('hide');
+$('join').onclick=()=>{msg('');socket.emit('joinRoom',{code:$('code').value,name:$('name').value.trim()||'Player'})};
+$('start').onclick=()=>socket.emit('startGame');
+socket.on('joined',d=>{mySeat=d.seat;enterLobby(d.code)});
+socket.on('errorMessage',msg);
+socket.on('state',s=>{
+ latest=s;
+ if(s.started){$('lobby').classList.add('hide');$('game').classList.remove('hide');renderGame(s)}
+ else renderLobby(s);
+});
+function renderLobby(s){
+ $('players').innerHTML=s.players.map((p,i)=>`<div class="player">${i+1}. ${p?esc(p.name)+(p.connected?' 🟢':' ⚪'):'Waiting for player…'}</div>`).join('');
+ $('start').disabled=s.players.some(p=>!p);
+}
+function esc(x){return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+const ranks=['2','3','4','5','6','7','8','9','10','J','Q','K','A'],suits=['♠','♥','♦','♣'];
+function label(c){return ranks[c.r]+suits[c.s]}
+function renderGame(s){
+ $('scoreA').textContent=s.scores[0];$('scoreB').textContent=s.scores[1];
+ $('trump').textContent=s.trump==null?'—':suits[s.trump];
+ $('trickNo').textContent=Math.min(s.trickNumber,13)+' / 13';
+ let played=s.trick.slice();
+ $('table').innerHTML=s.players.map((p,i)=>{
+ let c=played.find(x=>x.seat===i);
+ if(!c&&s.lastTrick&&s.trick.length===0&&s.lastTrick.winner===i)c=s.lastTrick.plays.find(x=>x.seat===i);
+ return `<div class="played">${esc(p?.name||'Player '+(i+1))}<br><b style="font-size:22px">${c?label(c.card):'—'}</b></div>`;
+ }).join('');
+ $('status').textContent=s.finished?'Game over':s.turn===mySeat?'Your turn!':'Waiting for '+(s.players[s.turn]?.name||'player')+'…';
+ $('handTitle').textContent='Your hand · '+(s.hand||[]).length+' cards';
+ $('hand').innerHTML='';
+ (s.hand||[]).forEach((c,i)=>{
+ let b=document.createElement('button');b.className='card '+([1,2].includes(c.s)?'red':'');
+ b.textContent=label(c);b.onclick=()=>play(i);$('hand').appendChild(b);
+ });
+ $('hint').textContent=s.turn===mySeat?'Tap a card to play. Follow the suit led if you have it.':'Your cards stay private while another player takes their turn.';
+ $('finished').classList.toggle('hide',!s.finished);
+ if(s.finished)$('winner').textContent=s.winner+' · Tens: '+s.scores.join(' – ');
+}
+function play(i){if(!latest||latest.turn!==mySeat||latest.finished)return;socket.emit('playCard',{index:i})}
+</script></body></html>
